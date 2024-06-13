@@ -1,7 +1,11 @@
-import cupy as nx
+try:
+    import cupy as nx
+    import os
+    os.environ["CUPY_TF32"] = "1"
+except ImportError:
+    import numpy as nx
+
 import numpy as np
-from einops import rearrange
-from sklearn.metrics import pairwise_distances
 from scipy.sparse.csgraph import  shortest_path
 from tqdm import tqdm
 def groupSinkorn(a, b, C, reg=1e-3,log=True):
@@ -16,6 +20,7 @@ def groupSinkorn(a, b, C, reg=1e-3,log=True):
     :return:
     '''
     assert a.shape[0] == b.shape[0] and a.shape[0] == C.shape[1]
+    numerical_error = False
     K = nx.exp(C / (-reg))
     #K -= np.identity(K.shape[0])
     Kp = (1/a).reshape(-1,1) * K
@@ -30,7 +35,8 @@ def groupSinkorn(a, b, C, reg=1e-3,log=True):
                 or nx.any(nx.isnan(u)) or nx.any(nx.isnan(v))
                 or nx.any(nx.isinf(u)) or nx.any(nx.isinf(v))):
             # Reached the machine precision
-            print('Warning: numerical errors at iteration %d' % ii)
+            if log:print('Warning: numerical errors at iteration %d' % ii)
+            numerical_error = True
             u = u_prev
             v = v_prev
             break
@@ -40,7 +46,7 @@ def groupSinkorn(a, b, C, reg=1e-3,log=True):
                 if log:print("converge")
                 break
     res = nx.einsum('ik,ij,jk,ij->k', u, K, v,C)
-    return res.get()
+    return res.get(),numerical_error
 
 def ricciCurvature(knn_dist,knn_index):
     '''
@@ -51,20 +57,25 @@ def ricciCurvature(knn_dist,knn_index):
     :return: Curvature matrix with same shape as adjacency
     '''
     knn_dist = knn_dist.toarray()
-    rw_measure = 1 / knn_dist
+    with np.errstate(divide='ignore'):
+        rw_measure = 1 / knn_dist
     rw_measure = np.nan_to_num(rw_measure, posinf=1e-7)
     rw_measure = (rw_measure / rw_measure.sum(axis=1,keepdims=True))
-    rw_measure = nx.asarray(rw_measure)
-    cost_matrix = nx.asarray(shortest_path(knn_dist,directed=False))
+    rw_measure = nx.asarray(rw_measure,dtype=nx.float32)
+    cost_matrix = nx.asarray(shortest_path(knn_dist,directed=False),dtype=nx.float32)
     curvature = knn_dist.copy()
     samples = knn_dist.shape[0]
+    numerical_error = False
     # Parallel computing
     for i in tqdm(range(0, samples)):
         neighbors = knn_index[i]
         measure_i = rw_measure[i].reshape(-1,1)
         dist_neigh = knn_dist[i][neighbors]
         measure_neigh = rw_measure[neighbors].T
-        wasserstein_dist = groupSinkorn(a=measure_i, b=measure_neigh, C=cost_matrix, reg=1,log=False)
+        wasserstein_dist,err_in_iter = groupSinkorn(a=measure_i, b=measure_neigh, C=cost_matrix, reg=1,log=False)
         curvature_chunk = 1 - wasserstein_dist / (1e-7 + dist_neigh)
         curvature[i][neighbors] = curvature_chunk
+        numerical_error = numerical_error or err_in_iter
+    if numerical_error:
+        print("Warning: numerical errors in Ricci Curvature computation")
     return curvature

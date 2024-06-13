@@ -2,8 +2,10 @@ from types import MappingProxyType
 from typing import Literal
 
 import numpy as np
-from scanpy.neighbors import Neighbors
+import scipy.sparse
+from scanpy.neighbors import Neighbors,_connectivity
 from scanpy.neighbors._types import _Method, KnnTransformerLike, _KnownTransformer, _Metric, _MetricFn
+from scanpy.neighbors._common import _get_indices_distances_from_sparse_matrix
 
 from typing import  Any, Mapping
 from scipy.sparse import csr_matrix,issparse
@@ -55,6 +57,7 @@ class TrimNeighbors(Neighbors):
         if n_neighbors != n_neighbors_set:
             assert trimming_scheme is not None
             self._trimming(trimming_scheme,n_neighbors)
+            self.rebuild_connectivities(method,n_neighbors)
 
 
     def _compute_curvature(self,computed_neighbors:int):
@@ -64,26 +67,52 @@ class TrimNeighbors(Neighbors):
 
     def _trimming(self,scheme,n_neighbors):
         n_samples = self._distances.shape[0]
-        graph_mask = csgraph_to_masked(self._distances)
-        curvature_masked = graph_mask * self._curvature
-        curvature_graph = csr_matrix((n_samples,n_samples))
-        connectivity_graph = csr_matrix((n_samples,n_samples))
-        distance_graph = csr_matrix((n_samples,n_samples))
+        #graph_mask = csgraph_to_masked(self._distances)
+        #curvature_masked = graph_mask * self._curvature
+        curvature_graph = np.zeros((n_samples,n_samples))
+        distance_graph = np.zeros((n_samples,n_samples))
         if scheme == 'max':
-            target_curv_indices = np.argsort(np.abs(curvature_masked), axis=1)[:,:n_neighbors]
+            target_curv_indices = np.argsort(np.abs(self._curvature), axis=1)[:,::-1][:,:n_neighbors]
         elif scheme == 'min':
-            target_curv_indices = np.argsort(np.abs(curvature_masked), axis=1)[:,::-1][:,:n_neighbors]
+            curvature_abs = np.abs(self._curvature)
+            curvature_abs[curvature_abs == 0] = np.inf
+            target_curv_indices = np.argsort(curvature_abs, axis=1)[:,:n_neighbors]
         else:
             raise ValueError(f"Unknown trimming scheme {scheme}")
         for i in range(n_samples):
             curvature_graph[i, target_curv_indices[i]] = self._curvature[i, target_curv_indices[i]]
-            connectivity_graph[i, target_curv_indices[i]] = self._connectivities[i, target_curv_indices[i]]
-            distance_graph[i, target_curv_indices[i]] = self._distances[i, target_curv_indices[i]]
+            distance_graph[i, target_curv_indices[i]] = self._distances[i, target_curv_indices[i]].toarray()
         self._curvature = curvature_graph
-        self._connectivities = connectivity_graph
-        self._distances = distance_graph
+        self._distances = scipy.sparse.csr_matrix(distance_graph)
         self.n_neighbors = n_neighbors
         pass
+
+    def rebuild_connectivities(self,method,n_neighbors):
+        if method == "umap":
+            knn_indices,knn_distances = _get_indices_distances_from_sparse_matrix(
+            self._distances, n_neighbors
+            )
+            self._connectivities = _connectivity.umap(
+                knn_indices,
+                knn_distances,
+                n_obs=self._adata.shape[0],
+                n_neighbors=self.n_neighbors,
+            )
+        elif method == "gauss":
+            self._connectivities = _connectivity.gauss(
+                self._distances, self.n_neighbors, knn=self.knn
+            )
+        elif method is not None:
+            msg = f"{method!r} should have been coerced in _handle_transform_args"
+            raise AssertionError(msg)
+        self._number_connected_components = 1
+        if issparse(self._connectivities):
+            from scipy.sparse.csgraph import connected_components
+
+            self._connected_components = connected_components(self._connectivities)
+            self._number_connected_components = self._connected_components[0]
+        if method is not None:
+            debug("Rebuild connectivities")
 
 
 

@@ -12,6 +12,7 @@ def neighbors(
     scheme: _Trim_Scheme|None = None,
     n_pcs: int | None = None,
     *,
+    method = "umap",
     use_rep: str | None = None,
     knn: bool = True,
     random_state: int = 0,
@@ -53,6 +54,7 @@ def neighbors(
     neighbors_dict["curvature_key"] = curvature_key
     neighbors_dict["params"] = dict(
         n_neighbors=neighbors.n_neighbors,
+        method = method,
         trimming_scheme=scheme,
         random_state=random_state,
     )
