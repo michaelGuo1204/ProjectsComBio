@@ -26,8 +26,9 @@ class TrimNeighbors(Neighbors):
             neighbors_key = "neighbors"
         if neighbors_key in adata.uns:
             neighbors = NeighborsView(adata, neighbors_key)
-            self.knn = issparse(neighbors["curvature"])
-            self._curvature = neighbors["curvature"]
+            if "curvature" in neighbors:
+                self.knn = issparse(neighbors["curvature"])
+                self._curvature = neighbors["curvature"]
 
     @property
     def curvature(self) -> np.ndarray | csr_matrix | None:

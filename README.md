@@ -1,26 +1,18 @@
 # ProjectsComBio
 Repo for Computational biology Spring 2024
 
-## Outlines 
+If you want a neighboring graph with curvature computed, use 
 
-+ Preprocessing of HLA data
+```python
+from model.neighbors import neighbors
+neighbors(ad_data,n_neighbors=30,n_initial_neighbors=30,...,)
+```
 
-  + APC dataset, Mono-> Macrophage 
+If you want to trim the neighbor graph, just select a smaller n_neighbors like 
 
-    > https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-11814
+```python
+from model.neighbors import neighbors
+neighbors(ad_data,n_neighbors=10,n_initial_neighbors=30,...,)
+```
 
-  + H5ad, 
-
-+ Neighbor Graph Trimming
-
-  > For *Subgraph Classification*. 
-
-  + Given any dataset $X\in \R^{n_c \times n_g}$, we try to construct a reweighted graph $G=(V,E)$ where each $v_i\in V$ denotes $x_i\in X$
-  + Different from neighboring graph, we distribute weights based on some metric between $V$ 
-
-  >  Ensemble
-  
-  + Ensemble of graph. 
-  > TI(Stain Sequencing), Clustering 
-  
-  > Other downstream analysis. 
+All reproducible notebooks are placed in `Experiment` directory
